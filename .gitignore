@@ -53,3 +53,5 @@ dkms.conf
 
 # Project specific executable files
 **/part?
+# Visualisation pictures
+*.ppm
