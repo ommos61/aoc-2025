@@ -3,7 +3,7 @@
 set -e
 
 CC="clang"
-CFLAGS="-std=c99 -g -Wall -Wextra -Werror -pedantic"
+CFLAGS="-std=c99 -O2 -g -Wall -Wextra -Werror -pedantic"
 
 errors=0
 compiles=0
