@@ -1,6 +1,7 @@
 
 #include <assert.h>
 #include <errno.h>
+#include <malloc.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -14,7 +15,7 @@
 #define MAX(a,b) (((a) > (b)) ? (a) : (b))
 
 // TODO: Global data information
-int debug = 1; // 0 = no debug output, 1 = some extra debug output
+int debug = 0; // 0 = no debug output, 1 = some extra debug output
 #define MAX_MACHINES 200
 #define MAX_COMBOS 100
 //typedef unsigned char joltage;
@@ -215,18 +216,9 @@ struct info {
     int *buttons;
     int min_presses;
     int presses;
-    int call_count;
 };
 
-void print_seq(int *nums, int count, void *data) {
-    ((struct info *)data)->call_count += 1;;
-    for (int i = 0; i < count; i++) {
-        printf("%d ", nums[i]);
-    }
-    printf("\n");
-}
-
-int min_presses(joltage *joltages, int count, int machine);
+int min_presses(joltage *joltages, int count, int presses, int machine);
 
 void handle_seq(int *nums, int count, void *data) {
     struct info *info = (struct info *)data;
@@ -241,23 +233,24 @@ void handle_seq(int *nums, int count, void *data) {
             }
             button_mask >>= 1;
         }
-        if (debug) print_joltages("new_joltages = ", new_joltages, info->joltage_count);
     }
     if (debug) print_joltages("new_joltages = ", new_joltages, info->joltage_count);
-    int presses = min_presses(new_joltages, info->joltage_count, info->machine);
+    int presses = min_presses(new_joltages, info->joltage_count, info->presses, info->machine);
     if (presses != -1) {
-        info->min_presses = MIN(info->min_presses, info->presses + presses);
+        info->min_presses = MIN(info->min_presses, presses);
     }
 
     free(new_joltages);
 }
 
-int min_presses(joltage *joltages, int count, int machine) {
+int global_min_presses = INT_MAX;
+long pruned = 0;
+int min_presses(joltage *joltages, int count, int presses, int machine) {
     if (debug) print_joltages("joltages =", joltages, count);
+    if (debug) printf(" joltage count is: %d\n", count);
     int lowest_non_zero = -1;
     int non_zero_mask = 0;
     int non_zero_bits = 0;
-    if (debug) printf(" joltage count is: %d\n", count);
     for (int i = count - 1; i >= 0; i--) {
         if (joltages[i] != 0) {
             non_zero_mask |= 1 << (count - i - 1);
@@ -267,7 +260,14 @@ int min_presses(joltage *joltages, int count, int machine) {
             }
         }
     }
-    if (non_zero_bits == 0) return 0;
+    if (non_zero_bits == 0) {
+        global_min_presses = MIN(global_min_presses, presses);
+        return presses;
+    }
+    if ((presses + joltages[lowest_non_zero]) >= global_min_presses) {
+        pruned++;
+        return -1;
+    }
 
     #define MAX_BUTTONS 100
     int buttons_to_try[MAX_BUTTONS] = {0};
@@ -283,56 +283,26 @@ int min_presses(joltage *joltages, int count, int machine) {
             buttons_to_try[button_count++] = i;
         }
     }
-    if (button_count == 0) {
-        if (debug) printf("no more buttons to try.\n");
-        return -1;
-#if 0
-    } else if (button_count == 1) {
-        // only one button possible (easy case)
-        if (debug) printf(" trying only one button.\n");
-        int presses = joltages[lowest_non_zero];
-        joltage *new_joltages = malloc(count * sizeof(joltage));
-        int button_mask = machines[machine].button_masks[buttons_to_try[0]];
-        if (debug) printf("%d x 0x%04X\n", presses, button_mask);
-        for (int i = count - 1; i >= 0; i--) {
-            if ((button_mask & 0x01) != 0) {
-                new_joltages[i] = joltages[i] - presses;
-            } else {
-                new_joltages[i] = joltages[i];
-            }
-            button_mask >>= 1;
-        }
-        int new_presses = min_presses(new_joltages, count, machine);
-        free(new_joltages);
-        if (new_presses >= 0) {
-            return presses + new_presses;
-        } else {
-            return -1;
-        }
-#endif
-    } else {
+    if (debug) printf(" found %d possible buttons.\n", button_count);
+    if (button_count != 0) {
         // try all permutations of the possible buttons
-        if (debug) printf(" found %d possible buttons.\n", button_count);
         struct info info;
         info.joltages = joltages;
         info.joltage_count = count;
         info.machine = machine;
         info.buttons = buttons_to_try;
         info.min_presses = INT_MAX;
-        info.presses = joltages[lowest_non_zero];
-        info.call_count = 0;
+        info.presses = presses + joltages[lowest_non_zero];
         int *press_counts = malloc(count * sizeof(int));
         memset(press_counts, 0, count * sizeof(int));
 
-        int sum = joltages[lowest_non_zero];
-        handle_combs(press_counts, button_count, sum, 0, handle_seq, &info);
+        handle_combs(press_counts, button_count, joltages[lowest_non_zero], 0, handle_seq, &info);
 
         free(press_counts);
         if (info.min_presses != INT_MAX) {
             return info.min_presses;
         }
     }
-
     return -1;
 }
 
@@ -348,7 +318,7 @@ int main(int argc, char *argv[]) {
 
     // implement algorithm
     printf("Info: machines storage takes %ld bytes.\n", sizeof(machines));
-    printf("Info: min there are %d machines.\n", machine_count);
+    printf("Info: there are %d machines.\n", machine_count);
     int total_presses = 0;
     int max_lights = 0;
     for (int i = 0; i < machine_count; i++) max_lights = MAX(max_lights, machines[i].num_lights);
@@ -363,23 +333,30 @@ int main(int argc, char *argv[]) {
     build_masks();
 
     time_t start_time = time(NULL);
+    FILE *out = fopen("output1.txt", "w");
+    assert(out != NULL);
     for (int machine = 0; machine < machine_count; machine++) {
         if (debug) { printf("min(%d, ", machine); print_machine(machine); }
-        joltage *joltages = malloc(machines[machine].num_lights * sizeof(joltage));
-        for (int j = 0; j < machines[machine].num_lights; j++) {
-            joltages[j] = machines[machine].joltages[j];
-        }
-        int presses = min_presses(joltages, machines[machine].num_lights, machine);
+        int num_lights = machines[machine].num_lights;
+        joltage *joltages = malloc(num_lights * sizeof(joltage));
+        memcpy(joltages, machines[machine].joltages, num_lights * sizeof(joltages));
+
+        global_min_presses = INT_MAX;
+        pruned = 0;
+        int presses = min_presses(joltages, machines[machine].num_lights, 0, machine);
         assert(presses != -1);
-        time_t end_time = time(NULL);
-        printf("min_presses = %d, time = %ld\n", presses, end_time - start_time);
+
+        time_t diff_time = time(NULL) - start_time;
+        printf("%d: %d (pruned = %ld, time = %ld:%02ld)\n", machine, presses, pruned, diff_time / 60, diff_time % 60);
+        fprintf(out, "%d : %d\n", machine, presses); fflush(out);
         free(joltages);
         total_presses += presses;
     }
+    fclose(out);
     printf("Info: the calculated total number of presses is %d.\n", total_presses);
 
     printf("Info: the solution for the sample data should be %d\n", 33);
-    printf("Info: the solution for the actual data should be %d\n", 0);
+    printf("Info: the solution for the actual data should be %d\n", 20042);
     return EXIT_SUCCESS;
 }
 
