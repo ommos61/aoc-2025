@@ -293,8 +293,8 @@ int min_presses(joltage *joltages, int count, int presses, int machine) {
         info.buttons = buttons_to_try;
         info.min_presses = INT_MAX;
         info.presses = presses + joltages[lowest_non_zero];
-        int *press_counts = malloc(count * sizeof(int));
-        memset(press_counts, 0, count * sizeof(int));
+        int *press_counts = malloc(button_count * sizeof(int));
+        memset(press_counts, 0, button_count * sizeof(int));
 
         handle_combs(press_counts, button_count, joltages[lowest_non_zero], 0, handle_seq, &info);
 
@@ -333,13 +333,13 @@ int main(int argc, char *argv[]) {
     build_masks();
 
     time_t start_time = time(NULL);
-    FILE *out = fopen("output1.txt", "w");
+    FILE *out = fopen("output.txt", "w");
     assert(out != NULL);
     for (int machine = 0; machine < machine_count; machine++) {
         if (debug) { printf("min(%d, ", machine); print_machine(machine); }
         int num_lights = machines[machine].num_lights;
         joltage *joltages = malloc(num_lights * sizeof(joltage));
-        memcpy(joltages, machines[machine].joltages, num_lights * sizeof(joltages));
+        memcpy(joltages, machines[machine].joltages, num_lights * sizeof(joltage));
 
         global_min_presses = INT_MAX;
         pruned = 0;
